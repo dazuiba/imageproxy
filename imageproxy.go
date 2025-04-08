@@ -91,6 +91,11 @@ type Proxy struct {
 	// PassRequestHeaders identifies HTTP headers to pass from inbound
 	// requests to the proxied server.
 	PassRequestHeaders []string
+
+	// ForceOverwriteHeaders identifies HTTP headers to be forcefully overwritten
+	// in outbound requests to the proxied server with values specified,
+	// overriding any headers from other sources.
+	ForceOverwriteHeaders []string
 }
 
 // NewProxy constructs a new proxy.  The provided http RoundTripper will be
@@ -99,6 +104,12 @@ type Proxy struct {
 func NewProxy(transport http.RoundTripper, cache Cache) *Proxy {
 	if transport == nil {
 		transport, _ = aia.NewTransport()
+
+		// 如果aiaTransport是*http.Transport类型，我们可以直接修改其Proxy字段
+		if httpTransport, ok := transport.(*http.Transport); ok {
+			// 这会使transport使用标准的环境变量HTTP_PROXY, HTTPS_PROXY等
+			httpTransport.Proxy = http.ProxyFromEnvironment
+		}
 	}
 	if cache == nil {
 		cache = NopCache
@@ -187,6 +198,16 @@ func (p *Proxy) serveImage(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(p.PassRequestHeaders) != 0 {
 		copyHeader(actualReq.Header, r.Header, p.PassRequestHeaders...)
+	}
+	if len(p.ForceOverwriteHeaders) != 0 {
+		for _, header := range p.ForceOverwriteHeaders {
+			parts := strings.SplitN(header, ":", 2)
+			if len(parts) == 2 {
+				headerName := strings.TrimSpace(parts[0])
+				headerValue := strings.TrimSpace(parts[1])
+				actualReq.Header.Set(headerName, headerValue)
+			}
+		}
 	}
 	if p.FollowRedirects {
 		// FollowRedirects is true (default), ensure that the redirected host is allowed
